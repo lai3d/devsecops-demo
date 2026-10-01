@@ -1,0 +1,8 @@
+# CI cluster. The default CNI is replaced with Cilium so NetworkPolicy is
+# enforced the same way it would be on a real cluster.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  disableDefaultCNI: true
+nodes:
+  - role: control-plane

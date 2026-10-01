@@ -1,0 +1,24 @@
+# Deploys the chart at the commit under test, pinned to the signed digest.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: devsecops-demo
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/${GITHUB_REPOSITORY}.git
+    targetRevision: ${GITHUB_SHA}
+    path: deploy/helm/devsecops-demo
+    helm:
+      parameters:
+        - name: image.digest
+          value: ${IMAGE_DIGEST}
+        - name: imagePullSecrets[0].name
+          value: ghcr-pull
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: demo
+  syncPolicy:
+    automated:
+      selfHeal: true

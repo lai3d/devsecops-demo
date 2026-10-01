@@ -1,0 +1,6 @@
+apiVersion: v2
+name: devsecops-demo
+description: Hardened deployment of the devsecops-demo service
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

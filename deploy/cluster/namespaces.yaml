@@ -1,0 +1,10 @@
+# The application namespace: Pod Security "restricted" is enforced by the API
+# server, and the label below opts it into the Kyverno supply-chain policies.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    devsecops-demo/supply-chain: enforce

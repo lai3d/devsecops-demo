@@ -1,0 +1,38 @@
+# Admit an image from this repository only if it carries a keyless Sigstore
+# signature made by the release workflow on main. A signature made by any
+# other workflow, branch or repository fails.
+apiVersion: policies.kyverno.io/v1
+kind: ImageValidatingPolicy
+metadata:
+  name: verify-image-signature
+spec:
+  validationActions: [Deny]
+  webhookConfiguration:
+    timeoutSeconds: 15
+  matchConstraints:
+    namespaceSelector:
+      matchLabels:
+        devsecops-demo/supply-chain: enforce
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+  matchImageReferences:
+    - glob: "ghcr.io/lai3d/devsecops-demo*"
+  credentials:
+    secrets:
+      - ghcr-pull
+  attestors:
+    - name: release
+      cosign:
+        keyless:
+          identities:
+            - issuer: "https://token.actions.githubusercontent.com"
+              subject: "https://github.com/lai3d/devsecops-demo/.github/workflows/release.yml@refs/heads/main"
+        ctlog:
+          url: "https://rekor.sigstore.dev"
+  validations:
+    - expression: >-
+        images.containers.map(image, verifyImageSignatures(image, [attestors.release])).all(e, e > 0)
+      message: "image is not signed by lai3d/devsecops-demo release.yml on main"

@@ -1,0 +1,27 @@
+# In enforced namespaces, every container must come from this repository's
+# GHCR package and be referenced by digest — no tags, no other registries.
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: require-image-digest
+spec:
+  validationActions: [Deny]
+  matchConstraints:
+    namespaceSelector:
+      matchLabels:
+        devsecops-demo/supply-chain: enforce
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+  variables:
+    - name: allContainers
+      expression: >-
+        object.spec.containers
+        + (has(object.spec.initContainers) ? object.spec.initContainers : [])
+        + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])
+  validations:
+    - expression: >-
+        variables.allContainers.all(c, c.image.startsWith('ghcr.io/lai3d/devsecops-demo@sha256:'))
+      message: "images must be ghcr.io/lai3d/devsecops-demo referenced by digest"
