@@ -124,7 +124,7 @@ jobs:
         run: |
           helm repo add cilium https://helm.cilium.io
           helm install cilium cilium/cilium --version 1.20.2 -n kube-system \
-            --set image.pullPolicy=IfNotPresent --set ipam.mode=kubernetes --wait
+            --set image.pullPolicy=IfNotPresent --set ipam.mode=kubernetes --set operator.replicas=1 --wait
           kubectl wait --for=condition=Ready nodes --all --timeout=180s
           helm install tetragon cilium/tetragon --version 1.7.1 -n kube-system --wait
           kubectl wait --for=condition=Established crd/tracingpolicies.cilium.io --timeout=120s
@@ -192,18 +192,34 @@ jobs:
       - name: runtime detection (Tetragon)
         run: |
           kubectl create namespace tetragon-test
+          kubectl get tracingpolicies
+          # Wait before touching the file, then keep touching it: a read in the
+          # first instant of a container can land before Tetragon has mapped
+          # the process to its pod, and the event then carries no pod.
           kubectl -n tetragon-test run intruder --image="$BUSYBOX" --restart=Never \
-            --command -- sh -c 'echo x >> /etc/shadow; cat /etc/shadow; sleep 300'
+            --command -- sh -c 'sleep 10; echo x >> /etc/shadow; while true; do cat /etc/shadow > /dev/null; sleep 2; done'
           kubectl -n tetragon-test wait --for=condition=Ready pod/intruder --timeout=120s
+          match='fromjson? | select(.process_kprobe != null)
+            | select(.process_kprobe.process.pod.namespace == "tetragon-test")
+            | select(any(.process_kprobe.args[]?; (.file_arg.path // "") | startswith("/etc/shadow")))'
           for _ in $(seq 30); do
-            if kubectl -n kube-system logs ds/tetragon -c export-stdout --tail=-1 \
-                | grep '"process_kprobe"' | grep '"pod":{"namespace":"tetragon-test"' | grep -q '/etc/shadow'; then
-              echo "Tetragon reported the /etc/shadow access"
+            hit=$(kubectl -n kube-system logs ds/tetragon -c export-stdout --tail=-1 \
+              | jq -Rc "$match | {pod: .process_kprobe.process.pod.name, binary: .process_kprobe.process.binary, function: .process_kprobe.function_name, path: .process_kprobe.args[0].file_arg.path}" \
+              | head -1)
+            if [ -n "$hit" ]; then
+              echo "Tetragon reported: $hit"
               exit 0
             fi
             sleep 5
           done
-          echo "no Tetragon event for /etc/shadow"; exit 1
+          echo "no Tetragon event for /etc/shadow"
+          echo "--- process_kprobe events seen (last 5):"
+          kubectl -n kube-system logs ds/tetragon -c export-stdout --tail=-1 | grep '"process_kprobe"' | tail -5 || true
+          echo "--- tracing policies:"
+          kubectl get tracingpolicies -o yaml || true
+          echo "--- tetragon agent log:"
+          kubectl -n kube-system logs ds/tetragon -c tetragon --tail=50 || true
+          exit 1
 
       - name: diagnostics
         if: failure()
