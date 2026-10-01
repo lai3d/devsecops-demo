@@ -2,6 +2,9 @@
 
 **English** | [中文](README.zh-CN.md)
 
+[![release](https://github.com/lai3d/devsecops-demo/actions/workflows/release.yml/badge.svg?branch=main)](https://github.com/lai3d/devsecops-demo/actions/workflows/release.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/lai3d/devsecops-demo/badge)](https://scorecard.dev/viewer/?uri=github.com/lai3d/devsecops-demo)
+
 A small Go service wrapped in a secure software supply chain: every change is scanned before merge, every release is signed and carries an SBOM, and the cluster admits only images signed by this repository's release workflow. A throwaway cluster on each release proves all of it end to end.
 
 ```
@@ -10,7 +13,7 @@ pull request ─▶ gitleaks ─▶ semgrep ─▶ zizmor ─▶ go test + govul
                                         audit)       Go CVEs)                  secrets)       image)
 
 merge to main ─▶ same gates ─▶ push to GHCR by digest ─▶ cosign sign (keyless, OIDC)
-              ─▶ Syft SBOM ─▶ cosign attest ─▶ cosign verify ─▶ trivy sbom
+              ─▶ Syft SBOM ─▶ cosign attest ─▶ SLSA provenance ─▶ verify all ─▶ trivy sbom
               ─▶ kind + Cilium ─▶ Kyverno admission tests ─▶ Argo CD deploy ─▶ Tetragon detection
 ```
 
@@ -26,7 +29,8 @@ merge to main ─▶ same gates ─▶ push to GHCR by digest ─▶ cosign sign
 | Image | Trivy `image` | HIGH/CRITICAL fixable CVE in the built image |
 | Sign | cosign keyless | — signs with the workflow's GitHub OIDC identity; no key to store or leak |
 | SBOM | Syft → cosign attest | — CycloneDX SBOM attached to the image as a signed attestation |
-| Verify | cosign verify / verify-attestation | the signature or attestation is not from `release.yml` on `main` |
+| Provenance | GitHub artifact attestation (SLSA build provenance), pushed to GHCR | — records which workflow, commit and runner built the digest |
+| Verify | cosign verify / verify-attestation, `gh attestation verify` | the signature, SBOM attestation or provenance is not from `release.yml` on `main` |
 | Admission | Kyverno `ImageValidatingPolicy` + `ValidatingPolicy` | see the admission tests below |
 | Deploy | Argo CD | the app is not `Synced/Healthy` on the signed digest |
 | Runtime | Tetragon `TracingPolicy` | a read of `/etc/shadow` in a pod is **not** reported |
@@ -48,6 +52,7 @@ All run against the `demo` namespace, which enforces Pod Security `restricted` a
 - Scanners run as digest-pinned containers rather than through third-party actions, keeping fewer third-party actions in the trusted path.
 - Workflows default to `permissions: {}`; each job asks for only what it needs, and `id-token: write` exists only on the signing job.
 - `actions/checkout` runs with `persist-credentials: false`.
+- `main` is protected: changes land only through a pull request with all six CI gates green, admins included; no force pushes.
 - No cloud keys are stored anywhere. AWS access, when enabled, is OIDC federation scoped to `main` of this repository (`infra/aws-github-oidc`).
 
 ## Runtime hardening (Helm chart)
@@ -78,9 +83,15 @@ docs/threat-model.md     STRIDE threat model and the controls above
 
 ## Notes
 
-- Keyless signing writes an entry to the public Rekor transparency log. The entry names this repository, the workflow and the commit, including while the repository is private.
+- Keyless signing writes an entry to the public Rekor transparency log naming this repository, the workflow and the commit.
 - The e2e job pushes a deliberately unsigned image tagged `e2e-unsigned` to the same package, so the signature policy has something to reject.
-- Not yet enabled while private: OpenSSF Scorecard (the workflow skips private repositories), GitHub artifact attestations, and code scanning (SARIF) uploads. Each needs a public repository or a paid plan.
+- Verify a release yourself:
+  ```
+  cosign verify ghcr.io/lai3d/devsecops-demo@sha256:<digest> \
+    --certificate-identity https://github.com/lai3d/devsecops-demo/.github/workflows/release.yml@refs/heads/main \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
+  gh attestation verify oci://ghcr.io/lai3d/devsecops-demo@sha256:<digest> --repo lai3d/devsecops-demo
+  ```
 
 ## Threat model
 

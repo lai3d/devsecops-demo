@@ -33,6 +33,7 @@ jobs:
       contents: read
       packages: write
       id-token: write # Sigstore keyless signing
+      attestations: write # SLSA build provenance
     outputs:
       digest: ${{ steps.build.outputs.digest }}
     env:
@@ -88,6 +89,20 @@ jobs:
           cosign verify-attestation --type cyclonedx \
             --certificate-identity "$SIGNER" --certificate-oidc-issuer "$ISSUER" "$IMAGE@$DIGEST" > /dev/null
           echo "signature and SBOM attestation verified for $IMAGE@$DIGEST"
+      - name: SLSA build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+      - name: verify build provenance
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh attestation verify "oci://$IMAGE@$DIGEST" --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" > /dev/null
+          echo "SLSA provenance verified for $IMAGE@$DIGEST"
       - name: scan the SBOM (trivy sbom)
         run: |
           docker run --rm -v "$PWD:/src" "$TRIVY_IMAGE" sbom \
