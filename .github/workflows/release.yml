@@ -129,6 +129,15 @@ jobs:
           helm install tetragon cilium/tetragon --version 1.7.1 -n kube-system --wait
           kubectl wait --for=condition=Established crd/tracingpolicies.cilium.io --timeout=120s
           kubectl apply -f policies/tetragon/
+          # kubectl apply succeeds even when the agent rejects the policy, so
+          # ask the agent itself whether it loaded.
+          for _ in $(seq 24); do
+            tps=$(kubectl -n kube-system exec ds/tetragon -c tetragon -- tetra tracingpolicy list 2>&1 || true)
+            if grep -q 'sensitive-file-read.*enabled' <<<"$tps"; then break; fi
+            sleep 5
+          done
+          echo "$tps"
+          grep -q 'sensitive-file-read.*enabled' <<<"$tps"
 
       - name: install Kyverno and supply-chain policies
         env:

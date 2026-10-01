@@ -1,5 +1,5 @@
-# Report any process that opens credential files on the node's containers.
-# Adapted from the Tetragon file-monitoring example.
+# Report any process that reads or writes credential files inside containers.
+# Follows examples/tracingpolicy/filename_monitoring_filtered.yaml in Tetragon v1.7.1.
 apiVersion: cilium.io/v1alpha1
 kind: TracingPolicy
 metadata:
@@ -11,13 +11,12 @@ spec:
       return: true
       args:
         - index: 0
-          type: "file"
+          type: "file" # struct file *, resolved to a path
         - index: 1
-          type: "int"
+          type: "int" # MAY_READ 0x04, MAY_WRITE 0x02
       returnArg:
         index: 0
         type: "int"
-      returnArgAction: "Post"
       selectors:
         - matchArgs:
             - index: 0
