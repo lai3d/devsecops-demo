@@ -2,6 +2,9 @@
 
 [English](README.md) | **中文**
 
+[![release](https://github.com/lai3d/devsecops-demo/actions/workflows/release.yml/badge.svg?branch=main)](https://github.com/lai3d/devsecops-demo/actions/workflows/release.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/lai3d/devsecops-demo/badge)](https://scorecard.dev/viewer/?uri=github.com/lai3d/devsecops-demo)
+
 一个小型 Go 服务，外面包着一条安全的软件供应链：每次变更合并前都要扫描，每次发布都要签名并附带 SBOM，集群只接受由本仓库 release workflow 签名的镜像。每次发布都会起一个临时集群，端到端验证上述所有环节。
 
 ```
@@ -10,7 +13,7 @@ pull request ─▶ gitleaks ─▶ semgrep ─▶ zizmor ─▶ go test + govul
                                         审计）       Go 漏洞）              密钥）         镜像）
 
 合并到 main ─▶ 同样的关卡 ─▶ 按 digest 推送到 GHCR ─▶ cosign 签名（keyless、OIDC）
-            ─▶ Syft SBOM ─▶ cosign attest ─▶ cosign verify ─▶ trivy sbom
+            ─▶ Syft SBOM ─▶ cosign attest ─▶ SLSA provenance ─▶ 全部验证 ─▶ trivy sbom
             ─▶ kind + Cilium ─▶ Kyverno 准入测试 ─▶ Argo CD 部署 ─▶ Tetragon 检测
 ```
 
@@ -26,7 +29,8 @@ pull request ─▶ gitleaks ─▶ semgrep ─▶ zizmor ─▶ go test + govul
 | 镜像 | Trivy `image` | 构建出的镜像存在可修复的高危/严重 CVE |
 | 签名 | cosign keyless | —— 用 workflow 的 GitHub OIDC 身份签名，没有需要保管或可能泄露的密钥 |
 | SBOM | Syft → cosign attest | —— CycloneDX SBOM 以签名 attestation 的形式附加到镜像上 |
-| 验证 | cosign verify / verify-attestation | 签名或 attestation 不是由 `main` 上的 `release.yml` 产生 |
+| 构建来源 | GitHub artifact attestation（SLSA build provenance），推送到 GHCR | —— 记录是哪个 workflow、哪次 commit、哪个 runner 构建了这个 digest |
+| 验证 | cosign verify / verify-attestation、`gh attestation verify` | 签名、SBOM attestation 或构建来源证明不是由 `main` 上的 `release.yml` 产生 |
 | 准入 | Kyverno `ImageValidatingPolicy` + `ValidatingPolicy` | 见下方准入测试 |
 | 部署 | Argo CD | 应用在已签名 digest 上未达到 `Synced/Healthy` |
 | 运行时 | Tetragon `TracingPolicy` | Pod 内读取 `/etc/shadow` **没有**被上报 |
@@ -48,6 +52,7 @@ pull request ─▶ gitleaks ─▶ semgrep ─▶ zizmor ─▶ go test + govul
 - 扫描器以锁定 digest 的容器运行，而不是通过第三方 action，减少信任链上的第三方 action。
 - Workflow 默认 `permissions: {}`，每个 job 只申请所需权限；`id-token: write` 只出现在签名 job 上。
 - `actions/checkout` 设置 `persist-credentials: false`。
+- `main` 分支受保护：只能通过 PR 合并，且六道 CI 关卡全部通过，管理员也不例外；禁止 force push。
 - 任何地方都不存储云密钥。启用 AWS 访问时，使用仅限本仓库 `main` 分支的 OIDC 联合身份（`infra/aws-github-oidc`）。
 
 ## 运行时加固（Helm chart）
@@ -78,9 +83,15 @@ docs/threat-model.md     STRIDE 威胁模型（英文）及对应控制措施
 
 ## 说明
 
-- Keyless 签名会在公开的 Rekor 透明日志中写入一条记录，记录里有本仓库名、workflow 和 commit。仓库为私有时也一样。
+- Keyless 签名会在公开的 Rekor 透明日志中写入一条记录，记录里有本仓库名、workflow 和 commit。
 - e2e job 会向同一个 package 推送一个刻意未签名、tag 为 `e2e-unsigned` 的镜像，让签名策略有东西可以拒绝。
-- 私有期间未启用：OpenSSF Scorecard（workflow 会跳过私有仓库）、GitHub artifact attestations、代码扫描（SARIF）上传。这几项都需要公开仓库或付费计划。
+- 自己验证一个 release：
+  ```
+  cosign verify ghcr.io/lai3d/devsecops-demo@sha256:<digest> \
+    --certificate-identity https://github.com/lai3d/devsecops-demo/.github/workflows/release.yml@refs/heads/main \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
+  gh attestation verify oci://ghcr.io/lai3d/devsecops-demo@sha256:<digest> --repo lai3d/devsecops-demo
+  ```
 
 ## 威胁模型
 

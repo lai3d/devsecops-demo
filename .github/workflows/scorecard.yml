@@ -1,17 +1,19 @@
-# OpenSSF Scorecard. Skipped while the repository is private; once public,
-# results are published and shown on the README badge.
+# OpenSSF Scorecard: published results feed the README badge. Skips itself
+# if the repository is ever made private again.
 name: scorecard
 
 on:
   push:
     branches: [main]
+  schedule:
+    - cron: "17 3 * * 1"
   workflow_dispatch:
 
 permissions: {}
 
 jobs:
   analysis:
-    if: github.event.repository.private == false
+    if: github.event.repository.private != true
     runs-on: ubuntu-24.04
     permissions:
       contents: read
