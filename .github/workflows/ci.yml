@@ -1,0 +1,108 @@
+# Shift-left gates. Runs on every pull request, and is called by release.yml
+# before anything is published. Scanners run as containers pinned by digest
+# rather than through third-party actions.
+name: ci
+
+on:
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  GITLEAKS_IMAGE: ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+  SEMGREP_IMAGE: semgrep/semgrep:1.178.0@sha256:32e459968daabe7ab86968184a29109b9564aa00392401156f9788452b42786b
+  TRIVY_IMAGE: aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
+
+jobs:
+  secrets:
+    name: secret scan (gitleaks, full history)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: gitleaks
+        run: |
+          docker run --rm -v "$PWD:/repo" \
+            -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' \
+            "$GITLEAKS_IMAGE" git /repo --redact --verbose --exit-code 1
+
+  sast:
+    name: SAST (semgrep)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: semgrep
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src \
+            -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' \
+            "$SEMGREP_IMAGE" \
+            semgrep scan --metrics=off --error \
+              --config p/golang --config p/dockerfile --config p/github-actions --config p/kubernetes
+
+  workflows:
+    name: workflow audit (zizmor)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: zizmor
+        run: pipx run zizmor==1.30.1 --offline --min-severity medium .github/workflows
+
+  go:
+    name: test + govulncheck
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.x"
+          check-latest: true
+          cache: false
+      - run: go vet ./...
+      - run: go test -race ./...
+      # Reachability-aware: reports only vulnerabilities in code paths this
+      # module actually calls, including the standard library.
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+
+  trivy-fs:
+    name: SCA + IaC misconfig (trivy fs)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: trivy fs
+        run: |
+          docker run --rm -v "$PWD:/src" "$TRIVY_IMAGE" fs \
+            --scanners vuln,misconfig,secret \
+            --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 /src
+      - name: helm lint
+        run: helm lint deploy/helm/devsecops-demo
+
+  image:
+    name: build + scan image (trivy image)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          load: true
+          push: false
+          tags: devsecops-demo:ci
+      - name: trivy image
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "$TRIVY_IMAGE" image \
+            --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 devsecops-demo:ci

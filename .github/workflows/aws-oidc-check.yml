@@ -1,0 +1,22 @@
+# Proves GitHub -> AWS federation with no stored keys. Manual only, and only
+# once infra/aws-github-oidc has been applied and the repository variable
+# AWS_ROLE_ARN is set. The role trusts main only, so run it from main.
+name: aws-oidc-check
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  whoami:
+    if: vars.AWS_ROLE_ARN != ''
+    runs-on: ubuntu-24.04
+    permissions:
+      id-token: write
+    steps:
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
+      - run: aws sts get-caller-identity

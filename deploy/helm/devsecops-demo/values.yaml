@@ -1,0 +1,23 @@
+image:
+  repository: ghcr.io/lai3d/devsecops-demo
+  # Deploy by digest. The release workflow passes the signed digest through
+  # Argo CD; the cluster policy rejects anything not referenced by digest.
+  digest: ""
+  # Used only when digest is empty (local experiments, chart linting).
+  tag: dev
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+replicaCount: 2
+
+service:
+  port: 80
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 16Mi
+  limits:
+    cpu: 200m
+    memory: 64Mi
