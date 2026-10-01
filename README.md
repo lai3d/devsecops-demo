@@ -23,6 +23,7 @@ merge to main ─▶ same gates ─▶ push to GHCR by digest ─▶ cosign sign
 |---|---|---|
 | Secrets | gitleaks (full history) | a credential appears in any commit |
 | SAST | Semgrep: `p/golang`, `p/dockerfile`, `p/github-actions`, `p/kubernetes` | a rule matches |
+| SAST | CodeQL `security-extended` (Go, Actions) | results in the Security tab; runs on PRs, main and weekly |
 | Workflow audit | zizmor | a workflow has a medium+ issue: template injection, over-broad permissions, credential persistence |
 | SCA | govulncheck | the code **reaches** a known-vulnerable Go function, including the standard library |
 | SCA + IaC | Trivy `fs` | HIGH/CRITICAL fixable CVE, or misconfiguration in Dockerfile, Helm chart, Kubernetes YAML or Terraform |
@@ -96,3 +97,7 @@ docs/threat-model.md     STRIDE threat model and the controls above
 ## Threat model
 
 See [docs/threat-model.md](docs/threat-model.md).
+
+## License
+
+[Apache-2.0](LICENSE)

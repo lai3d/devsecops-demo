@@ -23,6 +23,7 @@ pull request ─▶ gitleaks ─▶ semgrep ─▶ zizmor ─▶ go test + govul
 |---|---|---|
 | 密钥 | gitleaks（完整历史） | 任意一次提交中出现凭据 |
 | SAST | Semgrep：`p/golang`、`p/dockerfile`、`p/github-actions`、`p/kubernetes` | 规则命中 |
+| SAST | CodeQL `security-extended`（Go、Actions） | 结果在 Security 标签页；PR、main 和每周定时运行 |
 | Workflow 审计 | zizmor | workflow 存在中危及以上问题：模板注入、权限过宽、凭据残留 |
 | SCA | govulncheck | 代码**实际调用**到已知有漏洞的 Go 函数（包括标准库） |
 | SCA + IaC | Trivy `fs` | 存在可修复的高危/严重 CVE，或 Dockerfile、Helm chart、Kubernetes YAML、Terraform 有错误配置 |
@@ -96,3 +97,7 @@ docs/threat-model.md     STRIDE 威胁模型（英文）及对应控制措施
 ## 威胁模型
 
 见 [docs/threat-model.md](docs/threat-model.md)（英文）。
+
+## 许可证
+
+[Apache-2.0](LICENSE)
